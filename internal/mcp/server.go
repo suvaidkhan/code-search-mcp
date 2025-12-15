@@ -29,7 +29,7 @@ func NewServer(workspaceRoot, version string) (*Server, error) {
 	}
 
 	s.mcp = server.NewMCPServer(
-		"Sourcerer",
+		"CodeSearch",
 		version,
 		server.WithInstructions(`
 You have access to Code Search MCP tools for efficient codebase navigation.

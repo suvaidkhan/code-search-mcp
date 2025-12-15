@@ -45,3 +45,5 @@ coverage.out
 
 # Test cache
 *.testcache
+
+.codesearch

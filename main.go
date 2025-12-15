@@ -7,7 +7,7 @@ import (
 
 	_ "embed"
 
-	"github.com/st3v3nmw/sourcerer-mcp/internal/mcp"
+	"github.com/suvaidkhan/code-explore-mcp/internal/mcp"
 )
 
 var Version string
@@ -25,7 +25,7 @@ func main() {
 		log.Fatalf("Failed to create server: %v", err)
 	}
 	defer server.Close()
-
+	log.Println("Starting server")
 	if err := server.Serve(); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}

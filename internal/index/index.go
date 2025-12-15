@@ -33,7 +33,7 @@ type Index struct {
 }
 
 func New(ctx context.Context, workspaceRoot string) (*Index, error) {
-	db, err := chromem.NewPersistentDB(".sourcerer/db", false)
+	db, err := chromem.NewPersistentDB(".codesearch/db", false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create vector db: %w", err)
 	}
