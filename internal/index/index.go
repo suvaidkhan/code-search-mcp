@@ -3,15 +3,14 @@ package index
 import (
 	"context"
 	"fmt"
+	"github.com/philippgille/chromem-go"
+	"github.com/suvaidkhan/code-explore-mcp/internal/parser"
 	"os"
 	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
-
-	"github.com/philippgille/chromem-go"
-	"github.com/suvaidkhan/code-explore-mcp/internal/parser"
 )
 
 const (
@@ -29,12 +28,12 @@ type Index struct {
 	workspaceRoot string
 	collection    *chromem.Collection
 
-	cacheMu sync.RWMutex
 	cache   map[string][]*ChunkMetadata
+	cacheMu sync.RWMutex
 }
 
 func New(ctx context.Context, workspaceRoot string) (*Index, error) {
-	db, err := chromem.NewPersistentDB(".codeexplore/db", false)
+	db, err := chromem.NewPersistentDB(".sourcerer/db", false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create vector db: %w", err)
 	}
@@ -90,32 +89,6 @@ func (idx *Index) loadCache(ctx context.Context) {
 	}
 
 	idx.cache = fileChunks
-}
-
-func (idx *Index) GetChunk(ctx context.Context, id string) (*parser.Chunk, error) {
-	doc, err := idx.collection.GetByID(ctx, id)
-	if err != nil {
-		return nil, fmt.Errorf("chunk not found: %s", id)
-	}
-
-	startLine, _ := strconv.Atoi(doc.Metadata["startLine"])
-	startColumn, _ := strconv.Atoi(doc.Metadata["startColumn"])
-	endLine, _ := strconv.Atoi(doc.Metadata["endLine"])
-	endColumn, _ := strconv.Atoi(doc.Metadata["endColumn"])
-	parsedAt, _ := strconv.ParseInt(doc.Metadata["parsedAt"], 10, 64)
-
-	return &parser.Chunk{
-		File:        doc.Metadata["file"],
-		Type:        doc.Metadata["type"],
-		Path:        doc.Metadata["path"],
-		Summary:     doc.Metadata["summary"],
-		Source:      doc.Content,
-		StartLine:   uint(startLine),
-		StartColumn: uint(startColumn),
-		EndLine:     uint(endLine),
-		EndColumn:   uint(endColumn),
-		ParsedAt:    parsedAt,
-	}, nil
 }
 
 func (idx *Index) IsStale(filePath string) bool {
@@ -229,6 +202,20 @@ func (idx *Index) Search(ctx context.Context, query string, fileTypes []string) 
 	return idx.formatSearchResults(ctx, results, minSimilarity, maxResults, "", allowedTypes), nil
 }
 
+func (idx *Index) FindSimilarChunks(ctx context.Context, chunkID string) ([]string, error) {
+	doc, err := idx.collection.GetByID(ctx, chunkID)
+	if err != nil {
+		return nil, fmt.Errorf("chunk not found: %s", chunkID)
+	}
+
+	results, err := idx.collection.QueryEmbedding(ctx, doc.Embedding, 10, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to perform similarity search: %w", err)
+	}
+
+	return idx.formatSearchResults(ctx, results, 2*minSimilarity, 10, chunkID, nil), nil
+}
+
 func (idx *Index) formatSearchResults(
 	ctx context.Context,
 	results []chromem.Result,
@@ -274,4 +261,30 @@ func (idx *Index) formatSearchResults(
 	}
 
 	return paths
+}
+
+func (idx *Index) GetChunk(ctx context.Context, id string) (*parser.Chunk, error) {
+	doc, err := idx.collection.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("chunk not found: %s", id)
+	}
+
+	startLine, _ := strconv.Atoi(doc.Metadata["startLine"])
+	startColumn, _ := strconv.Atoi(doc.Metadata["startColumn"])
+	endLine, _ := strconv.Atoi(doc.Metadata["endLine"])
+	endColumn, _ := strconv.Atoi(doc.Metadata["endColumn"])
+	parsedAt, _ := strconv.ParseInt(doc.Metadata["parsedAt"], 10, 64)
+
+	return &parser.Chunk{
+		File:        doc.Metadata["file"],
+		Type:        doc.Metadata["type"],
+		Path:        doc.Metadata["path"],
+		Summary:     doc.Metadata["summary"],
+		Source:      doc.Content,
+		StartLine:   uint(startLine),
+		StartColumn: uint(startColumn),
+		EndLine:     uint(endLine),
+		EndColumn:   uint(endColumn),
+		ParsedAt:    parsedAt,
+	}, nil
 }

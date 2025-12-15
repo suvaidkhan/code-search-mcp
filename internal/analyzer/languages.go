@@ -9,10 +9,12 @@ import (
 type Language string
 
 const (
-	Go         Language = "go"
-	JavaScript Language = "javascript"
-	Python     Language = "python"
-	TypeScript Language = "typescript"
+	Go          Language = "go"
+	JavaScript  Language = "javascript"
+	Markdown    Language = "markdown"
+	Python      Language = "python"
+	TypeScript  Language = "typescript"
+	UnknownLang Language = "unknown"
 )
 
 type ParserFactory func(workspaceRoot string) (*parser.Parser, error)
@@ -32,7 +34,11 @@ func (r *registry) supportedExts() []string {
 }
 
 func (r *registry) detect(filePath string) Language {
-	lang := r.extensions[filepath.Ext(filePath)]
+	lang, exists := r.extensions[filepath.Ext(filePath)]
+	if !exists {
+		return UnknownLang
+	}
+
 	return lang
 }
 

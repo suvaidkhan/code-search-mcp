@@ -13,12 +13,12 @@ const (
 	debounceDuration = 60 * time.Second
 )
 
-type FileHandler func(ctx context.Context, filepath []string)
+type FileChangeHandler func(ctx context.Context, filePaths []string)
 
 type Watcher struct {
-	workspace        string
+	workspaceRoot    string
 	filter           *FileFilter
-	handler          FileHandler
+	handler          FileChangeHandler
 	fsWatcher        *fsnotify.Watcher
 	debounceTimer    *time.Timer
 	pendingFiles     map[string]bool
@@ -28,26 +28,29 @@ type Watcher struct {
 	cancel           context.CancelFunc
 }
 
-func NewWatcher(ctx context.Context, workspace string, supported []string, handler FileHandler) (*Watcher, error) {
+func NewWatcher(ctx context.Context, workspaceRoot string, supportedExts []string, handler FileChangeHandler) (*Watcher, error) {
 	fsWatcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
 	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	w := &Watcher{
-		workspace:    workspace,
-		filter:       NewFileFilter(workspace, supported),
-		handler:      handler,
-		fsWatcher:    fsWatcher,
-		pendingFiles: make(map[string]bool),
-		ctx:          ctx,
-		cancel:       cancel,
+		workspaceRoot:    workspaceRoot,
+		filter:           NewFileFilter(workspaceRoot, supportedExts),
+		handler:          handler,
+		fsWatcher:        fsWatcher,
+		pendingFiles:     map[string]bool{},
+		debounceDuration: debounceDuration,
+		ctx:              ctx,
+		cancel:           cancel,
 	}
 
-	err = w.addWatcher()
+	err = w.addWatchers()
 	if err != nil {
 		fsWatcher.Close()
 		cancel()
+
 		return nil, err
 	}
 
@@ -56,14 +59,14 @@ func NewWatcher(ctx context.Context, workspace string, supported []string, handl
 	return w, nil
 }
 
-func (w *Watcher) addWatcher() error {
-	var supported []string
+func (w *Watcher) addWatchers() error {
+	var supportedExts []string
 	for ext := range w.filter.supported {
-		supported = append(supported, ext)
+		supportedExts = append(supportedExts, ext)
 	}
 
-	return WalkSourceFiles(w.workspace, supported, func(filePath string) error {
-		dir := filepath.Dir(filepath.Join(w.workspace, filePath))
+	return WalkSourceFiles(w.workspaceRoot, supportedExts, func(filePath string) error {
+		dir := filepath.Dir(filepath.Join(w.workspaceRoot, filePath))
 		return w.fsWatcher.Add(dir)
 	})
 }
@@ -90,14 +93,18 @@ func (w *Watcher) watch() {
 func (w *Watcher) handleEvent(event fsnotify.Event) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
 	if w.shouldIgnoreEvent(event) {
 		return
 	}
-	relpath, err := filepath.Rel(w.workspace, event.Name)
+
+	relPath, err := filepath.Rel(w.workspaceRoot, event.Name)
 	if err != nil {
 		return
 	}
-	w.pendingFiles[relpath] = true
+
+	w.pendingFiles[relPath] = true
+
 	if w.debounceTimer != nil {
 		w.debounceTimer.Stop()
 	}
@@ -106,7 +113,7 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 }
 
 func (w *Watcher) shouldIgnoreEvent(event fsnotify.Event) bool {
-	if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Write|fsnotify.Remove|fsnotify.Rename) != 0 {
+	if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename) == 0 {
 		return true
 	}
 
@@ -116,6 +123,7 @@ func (w *Watcher) shouldIgnoreEvent(event fsnotify.Event) bool {
 func (w *Watcher) processPendingFiles() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
 	changes := make([]string, 0, len(w.pendingFiles))
 	for filePath := range w.pendingFiles {
 		changes = append(changes, filePath)
@@ -126,6 +134,22 @@ func (w *Watcher) processPendingFiles() {
 	}
 
 	w.pendingFiles = map[string]bool{}
+}
+
+func (w *Watcher) FlushPending() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.debounceTimer != nil {
+		w.debounceTimer.Reset(0)
+	}
+}
+
+func (w *Watcher) PendingCount() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return len(w.pendingFiles)
 }
 
 func (w *Watcher) Close() error {
